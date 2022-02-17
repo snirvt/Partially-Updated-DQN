@@ -1,3 +1,4 @@
+from copy import deepcopy
 import gym
 import gym.spaces
 
@@ -18,28 +19,28 @@ import torch
 import torch.nn as nn        # Pytorch neural network package
 import torch.optim as optim  # Pytorch optimization package
 
-# device = torch.device("cuda")
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
+print(device)
 
 import numpy as np
-from dqn import DQN
+from dqn import DQN, DQN_2_layers
 
-test_env = make_env(DEFAULT_ENV_NAME)
-test_net = DQN(test_env.observation_space.shape, test_env.action_space.n).to(device)
-print(test_net)
-
-
-from torch.utils.tensorboard import SummaryWriter
-# %load_ext tensorboard
 import time
 import numpy as np
 import collections
+from experience_replay import ExperienceReplay
+from agent import Agent
+import datetime
 
 
-MEAN_REWARD_BOUND = 5.0           
+
+test_env = make_env(DEFAULT_ENV_NAME)
+
+MEAN_REWARD_BOUND = 19.0           
 
 gamma = 0.99                   
-batch_size = 32                
+batch_size = 64                
 replay_size = 10000            
 learning_rate = 1e-4           
 sync_target_frames = 1000      
@@ -49,30 +50,47 @@ eps_start=1.0
 eps_decay=.999985
 eps_min=0.02
 
+transfer_learning = False
+
 # Main training loop Starts
 
-from experience_replay import ExperienceReplay
-from agent import Agent
-import datetime
-print(">>>Training starts at ",datetime.datetime.now())
 env = make_env(DEFAULT_ENV_NAME)
 
-net = DQN(env.observation_space.shape, env.action_space.n).to(device)
-target_net = DQN(env.observation_space.shape, env.action_space.n).to(device)
-writer = SummaryWriter(comment="-" + DEFAULT_ENV_NAME)
- 
-buffer = ExperienceReplay(replay_size)
-agent = Agent(env, buffer)
+# name = 'conv_history_dict'
+# name = 'test_history_dict'
+# name = 'control_batch64_fc128-128'
+name = 'debug'
 
-epsilon = eps_start
+try:
+    res_dict = np.load(name+'.npy', allow_pickle=True).item()
+except:
+    res_dict = {}
+    np.save(name+'.npy',res_dict, allow_pickle=True)
 
-optimizer = optim.Adam(net.parameters(), lr=learning_rate)
-total_rewards = []
-frame_idx = 0  
+for i in range(30):
+    print(">>>Training starts at ",datetime.datetime.now())
+    
+    net = DQN_2_layers(env.observation_space.shape, env.action_space.n).to(device)
+    target_net = DQN_2_layers(env.observation_space.shape, env.action_space.n).to(device)
+    
+    if transfer_learning:
+        pretrained_dqn = DQN(env.observation_space.shape, env.action_space.n)
+        pretrained_dqn.load_state_dict(torch.load('PongNoFrameskip-v4-conv.dat',map_location=device))    
+        net.transfer_learning(deepcopy(pretrained_dqn.conv))
+        target_net.transfer_learning(deepcopy(pretrained_dqn.conv))
+    
+    buffer = ExperienceReplay(replay_size)
+    agent = Agent(env, buffer)
 
-best_mean_reward = None
+    epsilon = eps_start
 
-while True:
+    optimizer = optim.Adam(net.parameters(), lr=learning_rate)
+    total_rewards = []
+    frame_idx = 0  
+
+    best_mean_reward = None
+
+    while True:
         frame_idx += 1
         epsilon = max(epsilon*eps_decay, eps_min)
 
@@ -80,23 +98,21 @@ while True:
         if reward is not None:
             total_rewards.append(reward)
 
-            mean_reward = np.mean(total_rewards[-100:])
+            mean_reward = np.mean(total_rewards[-10:])
 
             print("%d:  %d games, mean reward %.3f, (epsilon %.2f)" % (
                 frame_idx, len(total_rewards), mean_reward, epsilon))
-            
-            writer.add_scalar("epsilon", epsilon, frame_idx)
-            writer.add_scalar("reward_100", mean_reward, frame_idx)
-            writer.add_scalar("reward", reward, frame_idx)
 
             if best_mean_reward is None or best_mean_reward < mean_reward:
-                torch.save(net.state_dict(), DEFAULT_ENV_NAME + "-best.dat")
+                # torch.save(net.state_dict(), DEFAULT_ENV_NAME + "-conv.dat")
+                np.save(name+'.npy',res_dict, allow_pickle=True)
                 best_mean_reward = mean_reward
                 if best_mean_reward is not None:
                     print("Best mean reward updated %.3f" % (best_mean_reward))
 
-            if mean_reward > MEAN_REWARD_BOUND:
-                print("Solved in %d frames!" % frame_idx)
+            if len(total_rewards) > 200:
+                res_dict[len(res_dict.keys())] = deepcopy(total_rewards)
+                print("Played all the episodes")
                 break
 
         if len(buffer) < replay_start_size:
@@ -129,11 +145,8 @@ while True:
 
         if frame_idx % sync_target_frames == 0:
             target_net.load_state_dict(net.state_dict())
-       
-writer.close()
-print(">>>Training ends at ",datetime.datetime.now())
-# tensorboard  --logdir=runs
-
-# Main training loop Ends
+        
+    np.save(name+'.npy',res_dict, allow_pickle=True)
+    print(">>>Training ends at ",datetime.datetime.now())
 
 

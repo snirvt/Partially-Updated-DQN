@@ -37,8 +37,10 @@ class DQN_2_layers(nn.Module):
     def transfer_learning(self, weights, freeze = True):
         self.conv = weights.cuda()
         if freeze:
-            for param in self.conv.parameters():
-                param.requires_grad = False
+            self.freeze()
+    def freeze(self):
+        for param in self.conv.parameters():
+            param.requires_grad = False
 
 
 

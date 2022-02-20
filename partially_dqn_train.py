@@ -28,8 +28,6 @@ from dqn import DQN, DQN_2_layers
 
 test_env = make_env(DEFAULT_ENV_NAME)
 
-# from torch.utils.tensorboard import SummaryWriter
-# %load_ext tensorboard
 import time
 import numpy as np
 import collections
@@ -37,7 +35,7 @@ import collections
 
 MEAN_REWARD_BOUND = 19.0           
 
-from hook_handler import rand_hook
+from hook_handler import rand_hook, weighted_rand_hook, greedy_hook, epsilon_greedy_hook
 
 gamma = 0.99                   
 batch_size = 64                
@@ -50,11 +48,7 @@ eps_start=1.0
 eps_decay=.999985
 eps_min=0.02
 
-transfer_learning = False
-
-# Main training loop Starts
-
-
+transfer_learning = True
 
 
 
@@ -65,8 +59,11 @@ env = make_env(DEFAULT_ENV_NAME)
 
 # name = 'conv_history_dict'
 # name = 'test_history_dict'
-# name = 'control_batch64_fc128-128'
-name = 'debug'
+# name = 'control_batch64_fc128-128_sync1000'
+# name = 'batch64_fc128-128_independent_grad_rand_hook_p01_min1'
+name = 'batch64_fc128-128_dependent_grad_rand_hook_p01_min1'
+
+# name = 'debug'
 
 try:
     res_dict = np.load(name+'.npy', allow_pickle=True).item()
@@ -78,20 +75,16 @@ for i in range(30):
     print(">>>Training starts at ",datetime.datetime.now())
     
     net = DQN_2_layers(env.observation_space.shape, env.action_space.n).to(device)
-    target_net = DQN_2_layers(env.observation_space.shape, env.action_space.n).to(device)
     
     net.fc[0].weight.register_hook(lambda grad: rand_hook(grad, p=0.1))
     net.fc[2].weight.register_hook(lambda grad: rand_hook(grad, p=0.1))
-    net.fc[4].weight.register_hook(lambda grad: rand_hook(grad, minimum = 2))
+    net.fc[4].weight.register_hook(lambda grad: rand_hook(grad, p=0.1))
 
 
     if transfer_learning:
         pretrained_dqn = DQN(env.observation_space.shape, env.action_space.n)
         pretrained_dqn.load_state_dict(torch.load('PongNoFrameskip-v4-conv.dat',map_location=device))    
         net.transfer_learning(deepcopy(pretrained_dqn.conv))
-        target_net.transfer_learning(deepcopy(pretrained_dqn.conv))
-
-    # writer = SummaryWriter(comment="-" + DEFAULT_ENV_NAME)
     
     buffer = ExperienceReplay(replay_size)
     agent = Agent(env, buffer)
@@ -116,14 +109,6 @@ for i in range(30):
 
             print("%d:  %d games, mean reward %.3f, (epsilon %.2f)" % (
                 frame_idx, len(total_rewards), mean_reward, epsilon))
-            # file_object = open('sample.txt', 'a')
-            # file_object.write("%d:  %d games, mean reward %.3f, (epsilon %.2f)\n" % (
-                # frame_idx, len(total_rewards), mean_reward, epsilon))
-            # file_object.close()
-
-            # writer.add_scalar("epsilon", epsilon, frame_idx)
-            # writer.add_scalar("reward_100", mean_reward, frame_idx)
-            # writer.add_scalar("reward", reward, frame_idx)
 
             if best_mean_reward is None or best_mean_reward < mean_reward:
                 # torch.save(net.state_dict(), DEFAULT_ENV_NAME + "-conv.dat")
@@ -132,9 +117,6 @@ for i in range(30):
                 if best_mean_reward is not None:
                     print("Best mean reward updated %.3f" % (best_mean_reward))
 
-            # if mean_reward > MEAN_REWARD_BOUND:
-            #     print("Solved in %d frames!" % frame_idx)
-            #     break
             if len(total_rewards) > 200:
                 res_dict[len(res_dict.keys())] = deepcopy(total_rewards)
                 print("Played all the episodes")
@@ -154,7 +136,7 @@ for i in range(30):
 
         state_action_values = net(states_v).gather(1, actions_v.unsqueeze(-1).type(torch.int64)).squeeze(-1)
 
-        next_state_values = target_net(next_states_v).max(1)[0]
+        next_state_values = net(next_states_v).max(1)[0]
 
         next_state_values[done_mask] = 0.0
 
@@ -164,20 +146,15 @@ for i in range(30):
 
         loss_t = nn.MSELoss()(state_action_values, expected_state_action_values)
 
+        # net.freeze()
         optimizer.zero_grad()
         loss_t.backward()
+        # optimizer.param_groups[0]['params'][-2] = rand_hook(optimizer.param_groups[0]['params'][-2])
+        # optimizer.param_groups[0]['params'][-4] = rand_hook(optimizer.param_groups[0]['params'][-4])
+        # optimizer.param_groups[0]['params'][-6] = rand_hook(optimizer.param_groups[0]['params'][-6])
         optimizer.step()
-
-        if frame_idx % sync_target_frames == 0:
-            target_net.load_state_dict(net.state_dict())
         
     # writer.close()
     # torch.save(net.state_dict(), DEFAULT_ENV_NAME + "-conv.dat")
     np.save(name+'.npy',res_dict, allow_pickle=True)
     print(">>>Training ends at ",datetime.datetime.now())
-# tensorboard  --logdir=runs
-
-# Main training loop Ends
-
-
-# net.load_state_dict(torch.load('PongNoFrameskip-v4-best.dat'))

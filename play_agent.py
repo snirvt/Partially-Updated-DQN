@@ -18,6 +18,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 render_img = True
 
 env = make_env(DEFAULT_ENV_NAME)
+env = gym.wrappers.Monitor(env, 'video', force=True)
 
 model = DQN_2_layers(env.observation_space.shape, env.action_space.n)
 # model = DQN_2_layers(env.observation_space.shape, 6)
@@ -35,7 +36,7 @@ for num_step in range(2000):
     reward = agent.play_step(model, epsilon=0)
     if render_img:
         _ = env.render(mode="human")
-        time.sleep(0.02)
+        # time.sleep(0.02)
     if reward is not None:
         break
 env.close()

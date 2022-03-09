@@ -18,13 +18,6 @@ class DQN_2_layers(nn.Module):
 
         conv_out_size = self._get_conv_out(input_shape)
 
-        # self.fc = nn.Sequential(
-        #     nn.Linear(conv_out_size, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, n_actions)
-        # )
         self.fc = nn.Sequential(
             nn.Linear(conv_out_size, 256),
             nn.ReLU(),

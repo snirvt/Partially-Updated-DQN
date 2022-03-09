@@ -1,9 +1,7 @@
 import numpy as np
 import torch
 
-
 def init_hook(grad, p, minimum):
-    # group_size = grad.shape[0]*grad.shape[1]
     group_size = torch.numel(grad)
     sub_group_size = max(minimum, int(group_size * p))
     return group_size, sub_group_size
@@ -31,6 +29,7 @@ def rand_hook(grad, p_non_zero = 1/2, p_all=1/4, minimum = 1):
     try:
         idx = np.random.choice(non_zero_idx.squeeze(), size=sub_group_size, replace=0)
     except:
+        print('rand_hook exception')
         return grad
     return masking_grad(grad, idx)
 
@@ -41,6 +40,7 @@ def weighted_rand_hook(grad, p_non_zero = 1/2, p_all=1/4, minimum = 1):
     try:
         idx = np.random.choice(non_zero_idx.squeeze(), size=sub_group_size, replace=0, p=weights.squeeze())
     except:
+        print('weighted_rand_hook exception')
         return grad
     return masking_grad(grad, idx)
 
@@ -50,6 +50,7 @@ def greedy_hook(grad, p_non_zero = 1/2, p_all=1/4, minimum = 1):
     try:
         idx = np.argsort(grad_abs)[-sub_group_size:] # greedy
     except:
+        print('greedy_hook exception')
         return grad
     return masking_grad(grad, non_zero_idx[idx])
 
@@ -60,9 +61,9 @@ def epsilon_greedy_hook(grad, p_non_zero=0.1, p_all = 0.1, epsilon = 0.5, minimu
         idx_greedy = np.argsort(grad_abs)[-int(np.ceil(sub_group_size*(1-epsilon))):] # greedy
         available_values = set(range(group_size)) - set(idx_greedy)
         idx_rand = np.random.choice(list(available_values),                         # rand
-                                    size=int(np.ceil(sub_group_size*epsilon)),
-                                    replace=0)
+                                    size=int(np.ceil(sub_group_size*epsilon)), replace=0)
         idx = np.append(idx_greedy, idx_rand)
     except:
+        print('epsilon_greedy_hook exception')
         return grad
     return masking_grad(grad, idx)
